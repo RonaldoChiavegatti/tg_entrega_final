@@ -99,7 +99,7 @@ jobs:
           load: true
 
       - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@v0.24.0
+        uses: aquasecurity/trivy-action@v0.24.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:ci
           format: table
@@ -107,9 +107,10 @@ jobs:
           ignore-unfixed: true
 
       - name: Scan with Grype
-        uses: anchore/grype-action@v1
+        uses: anchore/scan-action@v3
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:ci
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:ci
+          fail-build: true
 
   publish-images:
     needs: build-and-scan

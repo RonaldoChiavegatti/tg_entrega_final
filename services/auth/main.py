@@ -1,33 +1,155 @@
-from fastapi import FastAPI, HTTPException
+import hashlib
+import json
+import time
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import jwt
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-import time, jwt, os
+from pydantic_settings import BaseSettings
 
-ALG = os.getenv("JWT_ALG", "RS256")
-PRIV = os.getenv("JWT_PRIVATE_KEY_PATH", "jwt_private.pem")
-PUB = os.getenv("JWT_PUBLIC_KEY_PATH", "jwt_public.pem")
 
-with open(PRIV, "r") as f:
-    PRIVATE_KEY = f.read()
-with open(PUB, "r") as f:
-    PUBLIC_KEY = f.read()
+class Settings(BaseSettings):
+    jwt_alg: str = "RS256"
+    jwt_private_key_path: str = "jwt_private.pem"
+    jwt_public_key_path: str = "jwt_public.pem"
+    access_ttl_seconds: int = 3600
+    refresh_ttl_seconds: int = 60 * 60 * 24 * 7
+    user_store_path: str = "data/users.json"
+    default_tenant: str = "demo"
+
+
+settings = Settings()
+
+
+def _load_key(path: str) -> str:
+    key_path = Path(path)
+    if not key_path.exists():
+        raise RuntimeError(f"JWT key not found at {key_path}")
+    return key_path.read_text()
+
+
+PRIVATE_KEY = _load_key(settings.jwt_private_key_path)
+PUBLIC_KEY = _load_key(settings.jwt_public_key_path)
+
+USER_STORE_PATH = Path(settings.user_store_path)
+if not USER_STORE_PATH.exists():
+    raise RuntimeError(f"User store not found at {USER_STORE_PATH}")
+USERS: List[Dict[str, str]] = json.loads(USER_STORE_PATH.read_text()).get("users", [])
+USERS_BY_EMAIL = {user["email"]: user for user in USERS}
 
 app = FastAPI(title="auth")
+security = HTTPBearer(auto_error=False)
 
 
-class Login(BaseModel):
+class LoginPayload(BaseModel):
     email: str
     password: str
 
 
+class RefreshPayload(BaseModel):
+    refresh_token: str
+
+
+def hash_password(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _base_claims(user: Dict[str, str]) -> Dict[str, str]:
+    return {
+        "sub": user["id"],
+        "email": user["email"],
+        "role": user.get("role", "viewer"),
+        "tenant_id": user.get("tenant_id") or settings.default_tenant,
+    }
+
+
+def encode_token(payload: Dict[str, str], ttl_seconds: int) -> str:
+    now = int(time.time())
+    claims = {
+        **payload,
+        "iat": now,
+        "exp": now + ttl_seconds,
+    }
+    return jwt.encode(claims, PRIVATE_KEY, algorithm=settings.jwt_alg)
+
+
+def decode_token(token: str, expected_type: str = "access") -> Dict[str, str]:
+    try:
+        data = jwt.decode(token, PUBLIC_KEY, algorithms=[settings.jwt_alg])
+        if data.get("type") != expected_type:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token type")
+        return data
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token expired")
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
+    return decode_token(credentials.credentials, expected_type="access")
+
+
+def role_required(allowed_roles: List[str]):
+    def checker(user=Depends(get_current_user)):
+        if user.get("role") not in allowed_roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+        return user
+
+    return checker
+
+
 @app.post("/auth/login")
-def login(payload: Login):
-    if payload.email == "admin@demo.local" and payload.password == "admin":
-        now = int(time.time())
-        access = jwt.encode({"sub": payload.email, "role": "admin", "iat": now, "exp": now + 3600}, PRIVATE_KEY, algorithm=ALG)
-        return {"access_token": access, "token_type": "bearer"}
-    raise HTTPException(status_code=401, detail="invalid credentials")
+def login(payload: LoginPayload):
+    user = USERS_BY_EMAIL.get(payload.email)
+    if not user or user.get("password_hash") != hash_password(payload.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+
+    base = _base_claims(user)
+    access_token = encode_token({**base, "type": "access"}, settings.access_ttl_seconds)
+    refresh_token = encode_token({**base, "type": "refresh"}, settings.refresh_ttl_seconds)
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.access_ttl_seconds,
+    }
+
+
+@app.post("/auth/refresh")
+def refresh(payload: RefreshPayload):
+    data = decode_token(payload.refresh_token, expected_type="refresh")
+    base = {k: data[k] for k in ["sub", "email", "role", "tenant_id"] if k in data}
+    new_access = encode_token({**base, "type": "access"}, settings.access_ttl_seconds)
+    return {
+        "access_token": new_access,
+        "token_type": "bearer",
+        "expires_in": settings.access_ttl_seconds,
+    }
+
+
+@app.get("/auth/validate")
+def validate(user=Depends(get_current_user)):
+    headers = {
+        "X-User-Id": user.get("sub", ""),
+        "X-Tenant-Id": user.get("tenant_id", ""),
+    }
+    return JSONResponse({"user": user}, headers=headers)
+
+
+@app.get("/auth/me")
+def me(user=Depends(role_required(["viewer", "editor", "admin"]))):
+    return {"user": user}
 
 
 @app.get("/auth/health")
-def health():
-    return {"ok": True}
+def health(request: Request):
+    return {"ok": True, "path": request.url.path}

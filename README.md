@@ -36,6 +36,15 @@ Healthchecks úteis:
 
 Para encerrar o ambiente: `make down`.
 
+## Demos e hardening
+- Execução rápida do fluxo presign→upload→PATCH→recalcular limites sem serviços externos:
+  ```bash
+  DEFAULT_TENANT_ID=demo STORAGE_BACKEND=filesystem python infra/demo_flow.py
+  ```
+  O script persiste o arquivo em `.demo_storage/`, grava audit trail e confirma SLA do painel (≤5s).
+- Testes de carga prontos em `infra/load/` para k6 e Locust cobrindo `/storage/presign-upload`, `PATCH /documents/{id}` e `/limits/recalculate`.
+- CSP agora está em modo **enforce** via gateway (somente `self`, `ws/wss` e `data:` para imagens). Ajuste front-ends para evitar assets de terceiros.
+
 ## CI/CD
 - CI executa `ruff`, testes unitários com `pytest`, sobe o stack com `docker compose` para checagem de integração e então constrói as imagens Docker dos serviços FastAPI. Cada imagem é analisada por Trivy e Grype antes de seguir adiante.
 - Tags no formato `v*` disparam a publicação das imagens no GHCR e um deploy automático para o ambiente de staging. Há um estágio separado que exige aprovação manual para promover a mesma tag para produção.

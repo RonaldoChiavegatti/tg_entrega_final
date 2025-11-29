@@ -1,0 +1,24 @@
+# Exclude local environments and secrets
+.env
+*.env
+**/*.pem
+**/*.key
+**/*.crt
+**/*.pfx
+**/*.p12
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Node dependencies and build artifacts
+node_modules/
+dist/
+build/
+
+# Misc tooling
+.vscode/
+.idea/
+.DS_Store

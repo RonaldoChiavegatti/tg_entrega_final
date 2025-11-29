@@ -20,10 +20,13 @@ Base unificada para serviços FastAPI, gateway NGINX e frontend. O repositório 
    ```bash
    cp .env.example .env
    ```
-2. Gere os pares RSA para o auth e aponte os caminhos em `.env` (`JWT_PRIVATE_KEY_PATH` e `JWT_PUBLIC_KEY_PATH`):
+2. Gere os pares RSA para o auth e salve-os apenas como variáveis de ambiente (`JWT_PRIVATE_KEY` e `JWT_PUBLIC_KEY`). Para desenvolvimento local, exporte as chaves diretamente no shell ou armazene-as em um cofre de segredos (ex.: GitHub Secrets):
    ```bash
    openssl genrsa -out jwt_private.pem 2048
    openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+   export JWT_PRIVATE_KEY="$(cat jwt_private.pem)"
+   export JWT_PUBLIC_KEY="$(cat jwt_public.pem)"
+   rm jwt_private.pem jwt_public.pem
    ```
 3. Preencha as credenciais do Oracle Object Storage (ou ajuste `STORAGE_BACKEND=filesystem` para desenvolvimento local) e defina o `DEFAULT_TENANT_ID` conforme necessário.
 

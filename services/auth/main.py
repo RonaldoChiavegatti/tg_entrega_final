@@ -24,6 +24,8 @@ from common.logging import configure_structured_logging
 
 class Settings(BaseSettings):
     jwt_alg: str = "RS256"
+    jwt_private_key: Optional[str] = None
+    jwt_public_key: Optional[str] = None
     jwt_private_key_path: str = "jwt_private.pem"
     jwt_public_key_path: str = "jwt_public.pem"
     access_ttl_seconds: int = 3600
@@ -36,15 +38,18 @@ configure_structured_logging("auth")
 settings = Settings()
 
 
-def _load_key(path: str) -> str:
+def _load_key(key_value: Optional[str], path: str, label: str) -> str:
+    if key_value:
+        return key_value.replace("\\n", "\n")
+
     key_path = Path(path)
     if not key_path.exists():
-        raise RuntimeError(f"JWT key not found at {key_path}")
+        raise RuntimeError(f"JWT {label} key not found at {key_path}")
     return key_path.read_text()
 
 
-PRIVATE_KEY = _load_key(settings.jwt_private_key_path)
-PUBLIC_KEY = _load_key(settings.jwt_public_key_path)
+PRIVATE_KEY = _load_key(settings.jwt_private_key, settings.jwt_private_key_path, "private")
+PUBLIC_KEY = _load_key(settings.jwt_public_key, settings.jwt_public_key_path, "public")
 
 USER_STORE_PATH = Path(settings.user_store_path)
 if not USER_STORE_PATH.exists():

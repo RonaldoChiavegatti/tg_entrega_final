@@ -1,0 +1,3 @@
+frontend/node_modules/
+services/auth/jwt_private.pem
+services/auth/jwt_public.pem

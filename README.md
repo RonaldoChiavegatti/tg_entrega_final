@@ -20,7 +20,7 @@ Base unificada para serviços FastAPI, gateway NGINX e frontend. O repositório 
    ```bash
    cp .env.example .env
    ```
-2. Gere os pares RSA para o auth e aponte os caminhos em `.env` (`JWT_PRIVATE_KEY_PATH` e `JWT_PUBLIC_KEY_PATH`):
+2. Para o serviço de auth, forneça as chaves JWT por variável de ambiente (`JWT_PRIVATE_KEY` e `JWT_PUBLIC_KEY`) ou, para desenvolvimento local, gere o par RSA e referencie os caminhos em `.env` (`JWT_PRIVATE_KEY_PATH` e `JWT_PUBLIC_KEY_PATH`):
    ```bash
    openssl genrsa -out jwt_private.pem 2048
    openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
